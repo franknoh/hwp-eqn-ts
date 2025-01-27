@@ -4,7 +4,7 @@
 > **AST**(Abstract Syntax Tree) 형태로 조작할 수 있는 TypeScript 라이브러리입니다.  
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.0.0-blue.svg" />
+  <img src="https://img.shields.io/npm/v/hwp-eqn-ts.svg" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg" />
 </p>
 
