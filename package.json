@@ -1,0 +1,29 @@
+{
+  "name": "hwp-eqn-ts",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "jest",
+    "build": "tsc -p tsconfig.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/franknoh/hwp-eqn-ts.git"
+  },
+  "author": "franknoh",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/franknoh/hwp-eqn-ts/issues"
+  },
+  "homepage": "https://github.com/franknoh/hwp-eqn-ts#readme",
+  "description": "HWP <-> LaTeX parser library",
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.10",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}
