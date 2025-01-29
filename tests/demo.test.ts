@@ -2,11 +2,11 @@ import { Tokenizer, Parser } from "../src";
 import { Token, ASTNode } from "../src";
 
 const latexInput = `
-x \\times 3 + \\frac{y^{2}}{z} + \\int_{1}^{2} {x^{3}} + \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix} + \\begin{cases} x = 1 \\\\ y = 2 \\end{cases} + \\acute{A} + \\sqrt{x}
+x \\times 3 + \\frac{y^{2}}{z} + \\int_{1}^{2} {x^{3}} + \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix} + \\begin{cases} x = 1 \\\\ y = 2 \\end{cases} + \\acute{A} + \\sqrt{x} + f \\left( \\frac{x}{y} \\right) + g(x)
 `.trim();
 
 const hwpeqnInput = `
-x times 3 + y^2 over z + int_1^2 { { x^3 } } + pmatrix{1 & 2 # 3 & 4} + cases {x = 1 # y = 2} + acute A + sqrt x
+x times 3 + y^2 over z + int_1^2 { { x^3 } } + pmatrix{1 & 2 # 3 & 4} + cases{x = 1 # y = 2} + acute A + sqrt x + f LEFT( x over y RIGHT) + g(x)
 `.trim();
 
 
@@ -20,7 +20,7 @@ describe("LaTeX -> AST -> LaTeX & 한컴수식", () => {
     });
 
     // 2) 파싱 → AST
-    let ast: ASTNode = { type: ""};
+    let ast: ASTNode = { type: "" };
     it("should parse", () => {
         ast = Parser.parseExpression(tokens, 'latex');
         expect(ast).toBeDefined();
@@ -49,7 +49,7 @@ describe("한컴수식 -> AST -> LaTeX & 한컴수식", () => {
     });
 
     // 2) 파싱 → AST
-    let ast: ASTNode = { type: ""};
+    let ast: ASTNode = { type: "" };
     it("should parse", () => {
         ast = Parser.parseExpression(tokens, "hwpeqn");
         expect(ast).toBeDefined();

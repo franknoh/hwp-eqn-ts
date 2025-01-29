@@ -9,7 +9,7 @@ export interface LiteralNode extends ASTNode {
 
 export interface BinaryOpNode extends ASTNode {
   type: "BinaryOp";
-  operator: string; // "+", "-", "times", "/", ...
+  operator: string; // +, -, times, /, apply...
   left: ASTNode;
   right: ASTNode;
 }
@@ -18,7 +18,7 @@ export interface FractionNode extends ASTNode {
   type: "Fraction";
   numerator: ASTNode;
   denominator: ASTNode;
-  withBar: boolean; // over=true, atop=false, or latex \frac => true
+  withBar: boolean; // over => true, atop => false, latex=>\frac
 }
 
 export interface RootNode extends ASTNode {
@@ -31,6 +31,7 @@ export interface SuperscriptNode extends ASTNode {
   base: ASTNode;
   exponent: ASTNode;
 }
+
 export interface SubscriptNode extends ASTNode {
   type: "Subscript";
   base: ASTNode;
@@ -39,10 +40,10 @@ export interface SubscriptNode extends ASTNode {
 
 export interface IntegralNode extends ASTNode {
   type: "Integral";
-  variant: "int" | "oint"; // \int, \oint
+  variant: "int" | "oint";
   lower?: ASTNode;
   upper?: ASTNode;
-  body?: ASTNode; // 적분 내부 식
+  body?: ASTNode;
 }
 
 export interface SummationNode extends ASTNode {
@@ -52,25 +53,23 @@ export interface SummationNode extends ASTNode {
   body?: ASTNode;
 }
 
-export interface MatrixNode extends ASTNode {
-  type: "Matrix";
-  matrixType: "matrix" | "pmatrix" | "bmatrix" | "dmatrix" | "vmatrix";
-  rows: ASTNode[][];
-}
-
-export interface CasesNode extends ASTNode {
-  type: "Cases";
-  lines: ASTNode[][];
-}
-
 export interface DecoratedNode extends ASTNode {
   type: "Decorated";
-  decoType: string;  // "acute", "dot", "hat", ...
+  decoType: string;
   child: ASTNode;
 }
 
-/** 괄호/중괄호로 묶인 그룹 */
-export interface GroupNode extends ASTNode {
-  type: "Group";
-  body: ASTNode;
+/** \begin{pmatrix}...\end{pmatrix} or \begin{cases}... => one node */
+export interface BeginEnvNode extends ASTNode {
+  type: "BeginEnv";
+  envName: string;
+  rows: ASTNode[][]; // row-based
+}
+
+/** ( ... ), { ... }, \left(\right) => bracket node */
+export interface BracketNode extends ASTNode {
+  type: "Bracket";
+  leftDelim: string;
+  rightDelim: string;
+  content: ASTNode;
 }

@@ -5,7 +5,7 @@ export * from "./ast";
 export * from "./tokenTypes";
 
 // 3. 토크나이저(한글/HWP, LaTeX, 통합)
-export * from "./hwpEqnTokenizer";
+export * from "./hwpTokenizer";
 export * from "./latexTokenizer";
 export * from "./tokenizer";
 

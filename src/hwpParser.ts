@@ -9,56 +9,36 @@ import {
   SubscriptNode,
   IntegralNode,
   SummationNode,
-  MatrixNode,
-  CasesNode,
   DecoratedNode,
-  GroupNode
+  BeginEnvNode,
+  BracketNode
 } from "./ast";
 
 export class HwpParser {
   private tokens: Token[];
-  private pos: number = 0;
-
+  private pos = 0;
   constructor(tokens: Token[]) {
-    // 공백, UNKNOWN 제거
+    // remove space, unknown
     this.tokens = tokens.filter(t => t.type !== TokenType.SPACE && t.type !== TokenType.UNKNOWN);
   }
-
-  public parseExpression(): ASTNode {
-    // 최상위 식 파싱
-    const expr = this.parseExpr();
-    return expr;
-  }
-
-  private peek(): Token {
-    return this.tokens[this.pos] || { type: TokenType.EOF, value: "" };
-  }
-  private next(): Token {
-    const t = this.peek();
-    if (t.type !== TokenType.EOF) this.pos++;
-    return t;
-  }
+  private peek(): Token { return this.tokens[this.pos] || { type: TokenType.EOF, value: "" }; }
+  private next(): Token { const t = this.peek(); if (t.type !== TokenType.EOF) this.pos++; return t; }
   private matchSymbol(v: string): boolean {
     const t = this.peek();
     return (t.type === TokenType.SYMBOL && t.value === v);
   }
+  public parseExpression(): ASTNode {
+    return this.parseExpr();
+  }
 
-  /********************************************
-   * expr = term { (+|-) term }*
-   ********************************************/
   private parseExpr(): ASTNode {
     let node = this.parseTerm();
     while (true) {
       const t = this.peek();
-      if (t.type === TokenType.SYMBOL && (t.value === "+" || t.value === "-")) {
+      if (t.type === TokenType.SYMBOL && (t.value === '+' || t.value === '-')) {
         this.next();
         const right = this.parseTerm();
-        node = {
-          type: "BinaryOp",
-          operator: t.value,
-          left: node,
-          right
-        } as BinaryOpNode;
+        node = { type: "BinaryOp", operator: t.value, left: node, right } as BinaryOpNode;
       } else {
         break;
       }
@@ -66,9 +46,6 @@ export class HwpParser {
     return node;
   }
 
-  /********************************************
-   * term = factor { ( times | over | atop | / ) factor }*
-   ********************************************/
   private parseTerm(): ASTNode {
     let node = this.parseFactor();
     while (true) {
@@ -77,13 +54,8 @@ export class HwpParser {
         const kw = t.value.toUpperCase();
         if (kw === "TIMES") {
           this.next();
-          const right = this.parseFactor();
-          node = {
-            type: "BinaryOp",
-            operator: "times",
-            left: node,
-            right
-          } as BinaryOpNode;
+          const r = this.parseFactor();
+          node = { type: "BinaryOp", operator: "times", left: node, right: r } as BinaryOpNode;
         }
         else if (kw === "OVER" || kw === "ATOP") {
           this.next();
@@ -94,22 +66,14 @@ export class HwpParser {
             denominator: denom,
             withBar: (kw === "OVER")
           } as FractionNode;
-        }
-        else {
+        } else {
           break;
         }
-      }
-      else if (t.type === TokenType.SYMBOL && t.value === "/") {
+      } else if (t.type === TokenType.SYMBOL && t.value === "/") {
         this.next();
-        const right = this.parseFactor();
-        node = {
-          type: "BinaryOp",
-          operator: "/",
-          left: node,
-          right
-        } as BinaryOpNode;
-      }
-      else {
+        const r = this.parseFactor();
+        node = { type: "BinaryOp", operator: "/", left: node, right: r } as BinaryOpNode;
+      } else {
         break;
       }
     }
@@ -117,50 +81,50 @@ export class HwpParser {
   }
 
   private parseFactor(): ASTNode {
-    const t = this.peek();
+    // check function call
+    const fc = this.tryParseFunctionCall();
+    if (fc) return fc;
 
-    // 1) 숫자
+    const t = this.peek();
     if (t.type === TokenType.NUMBER) {
       this.next();
       const lit: LiteralNode = { type: "Literal", value: t.value };
       return this.maybeParseSubSup(lit);
     }
-    // 2) 식별자
     if (t.type === TokenType.IDENT) {
       this.next();
       const lit: LiteralNode = { type: "Literal", value: t.value };
       return this.maybeParseSubSup(lit);
     }
-    // 3) KEYWORD
     if (t.type === TokenType.KEYWORD) {
       this.next();
       const kw = t.value.toUpperCase();
-
       if (kw === "SQRT") {
-        const radicand = this.parseFactor();
-        return { type: "Root", radicand } as RootNode;
+        let rad = this.parseFactor();
+        if (rad.type === "Bracket") {
+          let br = rad as BracketNode;
+          rad = this.removeBracket(br);
+        }
+        return { type: "Root", radicand: rad } as RootNode;
       }
-      // int / oint
       if (kw === "INT" || kw === "OINT") {
         const variant = (kw === "INT") ? "int" : "oint";
         const iNode: IntegralNode = { type: "Integral", variant };
-
-        // _lower
         if (this.matchSymbol("_")) {
           this.next();
-          // 단일 토큰만
           iNode.lower = this.parseSingleFactorNoSubSup();
         }
-        // ^upper
         if (this.matchSymbol("^")) {
           this.next();
           iNode.upper = this.parseSingleFactorNoSubSup();
         }
-        // body
         iNode.body = this.parseFactor();
+        if (iNode.body.type === "Bracket") {
+          let br = iNode.body as BracketNode;
+          iNode.body = this.removeBracket(br);
+        }
         return iNode;
       }
-      // sum
       if (kw === "SUM") {
         const sNode: SummationNode = { type: "Summation" };
         if (this.matchSymbol("_")) {
@@ -172,192 +136,206 @@ export class HwpParser {
           sNode.upper = this.parseSingleFactorNoSubSup();
         }
         sNode.body = this.parseFactor();
+        if (sNode.body.type === "Bracket") {
+          let br = sNode.body as BracketNode;
+          sNode.body = this.removeBracket(br);
+        }
         return sNode;
       }
-      if (kw === "MATRIX" || kw === "PMATRIX" || kw === "BMATRIX" || kw === "DMATRIX") {
-        return this.parseMatrix(kw.toLowerCase());
+      if (["ACUTE", "GRAVE", "DOT", "DDOT", "BAR", "VEC", "HAT", "TILDE", "ARCH", "CHECK"].includes(kw)) {
+        let child = this.parseFactor();
+        if (child.type === "Bracket") {
+          let br = child as BracketNode;
+          child = this.removeBracket(br);
+        }
+        return { type: "Decorated", decoType: kw.toLowerCase(), child } as DecoratedNode;
       }
-      if (kw === "CASES") {
-        return this.parseCases();
+      if (kw === "LEFT") {
+        return this.parseLeftBracket();
       }
-      // 장식(acute, etc.)
-      const deco: DecoratedNode = {
-        type: "Decorated",
-        decoType: kw.toLowerCase(),
-        child: this.parseFactor()
-      };
-      return deco;
+      if (kw === "RIGHT") {
+        // leftover
+        return { type: "Literal", value: "RIGHT" } as LiteralNode;
+      }
+      if (kw === "PMATRIX" || kw === "CASES") {
+        return this.parseEnv(kw.toLowerCase());
+      }
+      // fallback
+      return { type: "Literal", value: kw } as LiteralNode;
     }
-    // 4) SYMBOL
     if (t.type === TokenType.SYMBOL) {
-      if (t.value === "(") {
-        this.next();
-        const expr = this.parseExpr();
-        if (this.matchSymbol(")")) {
-          this.next();
-        }
-        const group: GroupNode = { type: "Group", body: expr };
-        return this.maybeParseSubSup(group);
+      if ("([{".includes(t.value)) {
+        return this.parseBracketDirect();
       }
-      if (t.value === "{") {
+      if (")]}".includes(t.value)) {
         this.next();
-        const expr = this.parseExpr();
-        if (this.matchSymbol("}")) {
-          this.next();
-        }
-        // 여기서 group 생성 -> flatten
-        let group: GroupNode = { type: "Group", body: expr };
-        group = this.flattenGroup(group);
-        return this.maybeParseSubSup(group);
+        return { type: "Literal", value: t.value } as LiteralNode;
       }
-      if (t.value === "^") {
-        // base 없는 superscript
-        this.next();
-        const exponent = this.parseFactor();
-        return {
-          type: "Superscript",
-          base: { type: "Literal", value: "" },
-          exponent
-        } as SuperscriptNode;
-      }
-      if (t.value === "_") {
-        // base 없는 subscript
-        this.next();
-        const sub = this.parseFactor();
-        return {
-          type: "Subscript",
-          base: { type: "Literal", value: "" },
-          sub
-        } as SubscriptNode;
-      }
-      // 그 외
       this.next();
       return { type: "Literal", value: t.value } as LiteralNode;
     }
-
-    // 그외
+    // else
     this.next();
     return { type: "Literal", value: "" } as LiteralNode;
   }
 
-  /** factor 뒤에 ^,_를 처리 */
+  /** f( ) or f LEFT( ) => apply */
+  private tryParseFunctionCall(): ASTNode | undefined {
+    const t1 = this.peek();
+    if (t1.type === TokenType.IDENT) {
+      const t2 = this.tokens[this.pos + 1];
+      if (t2 && t2.type === TokenType.KEYWORD && t2.value.toUpperCase() === "LEFT") {
+        this.next();
+        const fLit: LiteralNode = { type: "Literal", value: t1.value };
+        const bracket = this.parseLeftBracket();
+        const node: BinaryOpNode = { type: "BinaryOp", operator: "apply", left: fLit, right: bracket };
+        return this.maybeParseSubSup(node);
+      }
+      else if (t2 && t2.type === TokenType.SYMBOL && "([{".includes(t2.value)) {
+        this.next();
+        const fLit: LiteralNode = { type: "Literal", value: t1.value };
+        const bracket = this.parseBracketDirect();
+        const node: BinaryOpNode = { type: "BinaryOp", operator: "apply", left: fLit, right: bracket };
+        return this.maybeParseSubSup(node);
+      }
+    }
+    return undefined;
+  }
+
+  private parseLeftBracket(): ASTNode {
+    // parse "LEFT(" + content + "RIGHT)"
+    let leftD = "";
+    const s = this.peek();
+    if (s.type === TokenType.SYMBOL && "([{".includes(s.value)) {
+      leftD = "LEFT" + s.value;
+      this.next();
+    }
+    const content = this.parseExpr();
+    // check RIGHT
+    let rightD = "";
+    let maybeR = this.peek();
+    if (maybeR.type === TokenType.KEYWORD && maybeR.value.toUpperCase() === "RIGHT") {
+      this.next();
+      const sym2 = this.peek();
+      if (sym2.type === TokenType.SYMBOL && ")]}".includes(sym2.value)) {
+        rightD = "RIGHT" + sym2.value;
+        this.next();
+      }
+    }
+    // if no delim
+    if (leftD === "" && rightD === "") {
+      return content;
+    }
+    // flatten bracket if content is also bracket with same delim
+    let br: BracketNode = { type: "Bracket", leftDelim: leftD, rightDelim: rightD, content };
+    br = this.flattenBracket(br);
+    return this.maybeParseSubSup(br);
+  }
+
+  private parseBracketDirect(): ASTNode {
+    // e.g. '(' expr ')'
+    const open = this.peek();
+    const left = open.value;
+    this.next();
+    const expr = this.parseExpr();
+    let right = "";
+    if ((left === "(" && this.matchSymbol(")"))
+      || (left === "[" && this.matchSymbol("]"))
+      || (left === "{" && this.matchSymbol("}"))) {
+      right = this.peek().value;
+      this.next();
+    }
+    let br: BracketNode = { type: "Bracket", leftDelim: left, rightDelim: right, content: expr };
+    br = this.flattenBracket(br);
+    return this.maybeParseSubSup(br);
+  }
+
+  private flattenBracket(br: BracketNode): BracketNode {
+    if (br.content.type === "Bracket") {
+      const inner = br.content as BracketNode;
+      if (br.leftDelim === inner.leftDelim && br.rightDelim === inner.rightDelim) {
+        if (br.leftDelim === "{" || br.leftDelim === "") {
+          return inner;
+        }
+      }
+    }
+    return br;
+  }
+
+  private removeBracket(br: BracketNode): ASTNode {
+    if (br.leftDelim === "{" || br.leftDelim === "") {
+      return br.content;
+    }
+    return br;
+  }
+
+  private parseEnv(envName: string): ASTNode {
+    if (!this.matchSymbol("{")) {
+      return { type: "Literal", value: envName } as LiteralNode;
+    }
+    this.next();
+    const rows: ASTNode[][] = [];
+    let currentRow: ASTNode[] = [];
+    while (!this.matchSymbol("}")) {
+      const tk = this.peek();
+      if (tk.type === TokenType.EOF) break;
+      if (tk.type === TokenType.SYMBOL && tk.value === "\\\\") {
+        // row break, skip double
+        this.next();
+        if (currentRow.length > 0 || rows.length === 0) {
+          rows.push(currentRow);
+        }
+        currentRow = [];
+      } else if (tk.type === TokenType.SYMBOL && tk.value === "#") {
+        this.next();
+        rows.push(currentRow);
+        currentRow = [];
+      } else if (tk.type === TokenType.SYMBOL && tk.value === "&") {
+        this.next();
+      } else {
+        const f = this.parseFactor();
+        // ex) x=1 => we might unify them => but let's unify in toHwpEqn
+        if (f.type !== "Literal" || (f as LiteralNode).value !== "") {
+          currentRow.push(f);
+        }
+      }
+    }
+    if (currentRow.length > 0) {
+      rows.push(currentRow);
+    }
+    if (this.matchSymbol("}")) this.next();
+    const bEnv: BeginEnvNode = { type: "BeginEnv", envName, rows };
+    return bEnv;
+  }
+
   private maybeParseSubSup(base: ASTNode): ASTNode {
     let node = base;
     while (true) {
       const t = this.peek();
       if (t.type === TokenType.SYMBOL && t.value === "^") {
         this.next();
-        const exponent = this.parseFactor();
-        node = {
-          type: "Superscript",
-          base: node,
-          exponent
-        } as SuperscriptNode;
-      } else if (t.type === TokenType.SYMBOL && t.value === "_") {
+        const exp = this.parseFactor();
+        node = { type: "Superscript", base: node, exponent: exp } as SuperscriptNode;
+      }
+      else if (t.type === TokenType.SYMBOL && t.value === "_") {
         this.next();
         const sub = this.parseFactor();
-        node = {
-          type: "Subscript",
-          base: node,
-          sub
-        } as SubscriptNode;
-      } else {
+        node = { type: "Subscript", base: node, sub } as SubscriptNode;
+      }
+      else {
         break;
       }
     }
     return node;
   }
 
-  /** int_1^2에서 "_1"을 단일 토큰으로 파싱하기 */
+  // int_1 => single literal
   private parseSingleFactorNoSubSup(): ASTNode {
     const t = this.peek();
-    if (t.type === TokenType.NUMBER || t.type === TokenType.IDENT) {
+    if (t.type !== TokenType.EOF) {
       this.next();
       return { type: "Literal", value: t.value } as LiteralNode;
     }
-    if (t.type === TokenType.SYMBOL) {
-      this.next();
-      return { type: "Literal", value: t.value } as LiteralNode;
-    }
-    this.next();
     return { type: "Literal", value: "" } as LiteralNode;
-  }
-
-  private parseMatrix(mType: string): MatrixNode {
-    const mat: MatrixNode = {
-      type: "Matrix",
-      matrixType: mType as any,
-      rows: []
-    };
-    if (this.matchSymbol("{")) {
-      this.next();
-    } else {
-      return mat;
-    }
-    let currentRow: ASTNode[] = [];
-    while (!this.matchSymbol("}")) {
-      if (this.peek().type === TokenType.EOF) break;
-      const tk = this.peek();
-      if (tk.type === TokenType.SYMBOL && tk.value === "#") {
-        this.next();
-        mat.rows.push(currentRow);
-        currentRow = [];
-      } else if (tk.type === TokenType.SYMBOL && tk.value === "&") {
-        this.next();
-      } else {
-        const f = this.parseFactor();
-        currentRow.push(f);
-      }
-    }
-    if (currentRow.length > 0) {
-      mat.rows.push(currentRow);
-    }
-    if (this.matchSymbol("}")) {
-      this.next();
-    }
-    return mat;
-  }
-
-  private parseCases(): CasesNode {
-    const c: CasesNode = { type: "Cases", lines: [] };
-    if (this.matchSymbol("{")) {
-      this.next();
-    } else {
-      return c;
-    }
-    let currentLine: ASTNode[] = [];
-    while (!this.matchSymbol("}")) {
-      if (this.peek().type === TokenType.EOF) break;
-      if (this.matchSymbol("#")) {
-        this.next();
-        c.lines.push(currentLine);
-        currentLine = [];
-      } else {
-        const f = this.parseFactor();
-        currentLine.push(f);
-      }
-    }
-    if (currentLine.length > 0) {
-      c.lines.push(currentLine);
-    }
-    if (this.matchSymbol("}")) {
-      this.next();
-    }
-    return c;
-  }
-
-  /**
-   * flattenGroup:
-   *  - if group.body.type == 'Group', 펼치기
-   *  - 계속 중첩되어 있으면 재귀로
-   */
-  private flattenGroup(g: GroupNode): GroupNode {
-    // while 문을 써서 여러 단계 평탄화할 수도 있음
-    // 여기서는 2중까지만 해결하면 된다면 한번만 검사
-    // 하지만 재귀로도 작성 가능
-    while (g.body.type === "Group") {
-      g.body = (g.body as GroupNode).body;
-    }
-    return g;
   }
 }

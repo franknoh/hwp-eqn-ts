@@ -1,19 +1,30 @@
 import {
-  ASTNode, LiteralNode, BinaryOpNode, FractionNode, RootNode,
-  SuperscriptNode, SubscriptNode, IntegralNode, SummationNode,
-  MatrixNode, CasesNode, DecoratedNode, GroupNode
+  ASTNode,
+  LiteralNode,
+  BinaryOpNode,
+  FractionNode,
+  RootNode,
+  SuperscriptNode,
+  SubscriptNode,
+  IntegralNode,
+  SummationNode,
+  DecoratedNode,
+  BeginEnvNode,
+  BracketNode
 } from "./ast";
-
 
 export function toLatex(node: ASTNode): string {
   switch (node.type) {
-    case "Literal":
-      return (node as LiteralNode).value;
+    case "Literal": return (node as LiteralNode).value;
 
     case "BinaryOp": {
       const b = node as BinaryOpNode;
       const left = toLatex(b.left);
       const right = toLatex(b.right);
+      if (b.operator === "apply") {
+        // f(...) => left + bracket
+        return `${left}${right}`;
+      }
       switch (b.operator) {
         case "times": return `${left} \\times ${right}`;
         case "+": case "-": case "/":
@@ -30,7 +41,6 @@ export function toLatex(node: ASTNode): string {
       if (f.withBar) {
         return `\\frac{${num}}{${den}}`;
       } else {
-        // atop
         return `\\begin{array}{c} ${num} \\atop ${den} \\end{array}`;
       }
     }
@@ -44,81 +54,80 @@ export function toLatex(node: ASTNode): string {
       const s = node as SuperscriptNode;
       return `${toLatex(s.base)}^{${toLatex(s.exponent)}}`;
     }
-
     case "Subscript": {
       const sb = node as SubscriptNode;
       return `${toLatex(sb.base)}_{${toLatex(sb.sub)}}`;
     }
-
     case "Integral": {
-      const iNode = node as IntegralNode;
-      const cmd = (iNode.variant === "int") ? "\\int" : "\\oint";
+      const i = node as IntegralNode;
+      const cmd = (i.variant === "int") ? "\\int" : "\\oint";
       let lower = "", upper = "";
-      if (iNode.lower) lower = `_{${toLatex(iNode.lower)}}`;
-      if (iNode.upper) upper = `^{${toLatex(iNode.upper)}}`;
-      let body = "";
-      if (iNode.body) {
-        const bStr = toLatex(iNode.body);
-        body = ` ${bStr}`;
-      }
+      if (i.lower) lower = `_{${toLatex(i.lower)}}`;
+      if (i.upper) upper = `^{${toLatex(i.upper)}}`;
+      const body = i.body ? ` {${toLatex(i.body)}}` : "";
       return `${cmd}${lower}${upper}${body}`;
     }
-
     case "Summation": {
       const s = node as SummationNode;
       let lower = "", upper = "";
       if (s.lower) lower = `_{${toLatex(s.lower)}}`;
       if (s.upper) upper = `^{${toLatex(s.upper)}}`;
-      let body = "";
-      if (s.body) {
-        body = ` ${toLatex(s.body)}`;
-      }
+      const body = s.body ? ` {${toLatex(s.body)}}` : "";
       return `\\sum${lower}${upper}${body}`;
     }
-
-    case "Matrix": {
-      const m = node as MatrixNode;
-      let env = m.matrixType;
-      if (env === "dmatrix") env = "vmatrix"; // 임의 매핑
-      const rowStrs = m.rows.map(r => r.map(e => toLatex(e)).join(" & ")).join(" \\\\ ");
-      return `\\begin{${env}} ${rowStrs} \\end{${env}}`;
-    }
-
-    case "Cases": {
-      const c = node as CasesNode;
-      // \begin{cases} line \\ line \end{cases}
-      const lines = c.lines.map(line => line.map(e => toLatex(e)).join(" ")).join(" \\\\ ");
-      return `\\begin{cases} ${lines} \\end{cases}`;
-    }
-
     case "Decorated": {
       const d = node as DecoratedNode;
-      const child = toLatex(d.child);
+      const c = toLatex(d.child);
       switch (d.decoType) {
-        case "acute": return `\\acute{${child}}`;
-        case "grave": return `\\grave{${child}}`;
-        case "dot": return `\\dot{${child}}`;
-        case "ddot": return `\\ddot{${child}}`;
-        case "bar": return `\\bar{${child}}`;
-        case "vec": return `\\vec{${child}}`;
-        case "hat": return `\\hat{${child}}`;
-        case "tilde": return `\\tilde{${child}}`;
-        default:
-          return child;
+        case "acute": return `\\acute{${c}}`;
+        case "grave": return `\\grave{${c}}`;
+        case "dot": return `\\dot{${c}}`;
+        case "ddot": return `\\ddot{${c}}`;
+        case "bar": return `\\bar{${c}}`;
+        case "vec": return `\\vec{${c}}`;
+        case "hat": return `\\hat{${c}}`;
+        case "tilde": return `\\tilde{${c}}`;
+        default: return c;
       }
     }
-
-    case "Group": {
-      const g = node as GroupNode;
-      const inner = toLatex(g.body);
-      // 만약 body가 Literal이면 {} 생략
-      if (g.body.type === "Literal") {
-        return inner;
-      }
-      return `{${inner}}`;
+    case "BeginEnv": {
+      const be = node as BeginEnvNode;
+      // row => ' \\\\ ', col => ' & '
+      const rowStrs = be.rows.map(r => {
+        // 특별 해킹: 만약 r=[ x, =, 1 ] => join => "x=1"
+        const colStr = unifyCaseRow(r.map(e => toLatex(e)));
+        return colStr.join(" & ");
+      }).join(" \\\\ ");
+      return `\\begin{${be.envName}} ${rowStrs} \\end{${be.envName}}`;
     }
-
+    case "Bracket": {
+      const br = node as BracketNode;
+      const content = toLatex(br.content);
+      // if "LEFT(" => => \left( ...
+      if (br.leftDelim.startsWith("LEFT")) {
+        const c = br.leftDelim.slice(4);
+        let left = `\\left${c}`;
+        let right = "";
+        if (br.rightDelim.startsWith("RIGHT")) {
+          const c2 = br.rightDelim.slice(5);
+          right = `\\right${c2}`;
+        }
+        return ` ${left} ${content} ${right}`;
+      } else if (br.leftDelim.startsWith("\\left")) {
+        return ` ${br.leftDelim} ${content} ${br.rightDelim}`;
+      } else {
+        return `${br.leftDelim}${content}${br.rightDelim}`;
+      }
+    }
     default:
       return "";
   }
+}
+
+/** small helper: if row=[x,"=","1"] => unify => ["x=1"] */
+function unifyCaseRow(strs: string[]): string[] {
+  if (strs.length === 3 && strs[1] === "=") {
+    return [strs[0] + " = " + strs[2]];
+  }
+  return strs;
 }
